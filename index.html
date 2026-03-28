@@ -5,199 +5,464 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Browser Stability Repro</title>
   <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a30;
+      --panel-2: #18213d;
+      --text: #e8ecf3;
+      --muted: #9aa6c0;
+      --ok: #7bd88f;
+      --warn: #ffd166;
+    }
+
+    * { box-sizing: border-box; }
+
     body {
+      margin: 0;
       font-family: system-ui, sans-serif;
-      margin: 24px;
-      line-height: 1.4;
-      max-width: 900px;
+      background: var(--bg);
+      color: var(--text);
     }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(11, 16, 32, 0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid #24304f;
+      padding: 16px;
+    }
+
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 22px;
+    }
+
+    .sub {
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
     button {
-      font-size: 16px;
+      border: 0;
+      border-radius: 10px;
       padding: 10px 14px;
-      margin-right: 8px;
+      font-size: 15px;
       cursor: pointer;
+      background: var(--panel-2);
+      color: var(--text);
     }
+
+    button:hover {
+      filter: brightness(1.1);
+    }
+
+    .status {
+      margin-left: 8px;
+      color: var(--ok);
+      font-weight: 600;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid #24304f;
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .metric {
+      background: #10172d;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .metric .value {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
     #log {
-      white-space: pre-wrap;
-      background: #f6f6f6;
-      padding: 12px;
-      border-radius: 8px;
-      margin-top: 16px;
-      min-height: 240px;
+      height: 260px;
       overflow: auto;
+      background: #0d1427;
+      border-radius: 10px;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
     }
-    .muted {
-      color: #555;
+
+    .log-line {
+      margin-bottom: 4px;
+      color: #cdd6e7;
+    }
+
+    #viewport {
+      height: calc(100vh - 140px);
+      overflow: auto;
+      background: #0d1427;
+      border-radius: 14px;
+      border: 1px solid #24304f;
+      padding: 12px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 10px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, #1a2442, #131b32);
+      border: 1px solid #2a3760;
+      border-radius: 12px;
+      padding: 10px;
+      min-height: 120px;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .tiny {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    canvas {
+      width: 100%;
+      height: 220px;
+      display: block;
+      background: #0a0f1d;
+      border-radius: 12px;
+      border: 1px solid #24304f;
+      margin-bottom: 14px;
+    }
+
+    .note {
+      color: var(--warn);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+      #viewport {
+        height: 50vh;
+      }
     }
   </style>
 </head>
 <body>
-  <h1>Browser Stability Repro 0.2</h1>
-  <p>
-    Test de stabilité navigateur avec charge CPU/JS et churn mémoire borné.
-    Le test essaie d'éviter un <em>Out of Memory</em> en maintenant une empreinte mémoire stable.
-  </p>
+  <header>
+    <h1>Browser Stability Repro 0.3</h1>
+    <div class="sub">
+      Test visuel de charge JS / DOM / canvas / workers avec mémoire bornée.
+    </div>
+    <div class="controls">
+      <button id="start">Démarrer</button>
+      <button id="stop">Arrêter</button>
+      <button id="burst">Burst 5s</button>
+      <span id="status" class="status">Prêt</span>
+    </div>
+  </header>
 
-  <button id="start">Démarrer</button>
-  <button id="stop">Arrêter</button>
-  <div class="muted" id="status">État : prêt</div>
-  <div id="log">Prêt.\n</div>
+  <main class="grid">
+    <section class="panel">
+      <div class="metrics">
+        <div class="metric">
+          <div class="label">Boucles main thread</div>
+          <div class="value" id="loops">0</div>
+        </div>
+        <div class="metric">
+          <div class="label">Workers actifs</div>
+          <div class="value" id="workersCount">0</div>
+        </div>
+        <div class="metric">
+          <div class="label">Cartes DOM</div>
+          <div class="value" id="cardsCount">0</div>
+        </div>
+        <div class="metric">
+          <div class="label">Empreinte bornée</div>
+          <div class="value" id="memoryHint">~0 MB</div>
+        </div>
+      </div>
+
+      <canvas id="canvas" width="900" height="220"></canvas>
+
+      <div id="log"></div>
+
+      <div class="note">
+        Le test remplace en continu les données au lieu de les accumuler, afin d’éviter un Out of Memory “normal”.
+      </div>
+    </section>
+
+    <section>
+      <div id="viewport">
+        <div id="cards" class="cards"></div>
+      </div>
+    </section>
+  </main>
 
   <script>
-    const logEl = document.getElementById("log");
     const statusEl = document.getElementById("status");
-
-    function log(msg) {
-      const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
-      logEl.textContent = line + logEl.textContent.slice(0, 12000);
-    }
+    const loopsEl = document.getElementById("loops");
+    const workersCountEl = document.getElementById("workersCount");
+    const cardsCountEl = document.getElementById("cardsCount");
+    const memoryHintEl = document.getElementById("memoryHint");
+    const logEl = document.getElementById("log");
+    const cardsEl = document.getElementById("cards");
+    const viewportEl = document.getElementById("viewport");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
 
     let running = false;
-    let mainTimer = null;
+    let burstUntil = 0;
+    let loopCount = 0;
     let workers = [];
     let workerUrl = null;
+    let animationFrame = null;
+    let mainTimer = null;
+    let scrollDir = 1;
 
-    // Mémoire bornée côté main thread
-    const POOL_SIZE = 24;
-    const BUFFER_SIZE_MB = 8;
-    const pool = new Array(POOL_SIZE).fill(null);
-    let poolIndex = 0;
-    let iteration = 0;
+    const BUFFER_MB = 6;
+    const MAIN_POOL_SIZE = 18;
+    const mainPool = new Array(MAIN_POOL_SIZE).fill(null);
+    let mainPoolIndex = 0;
+
+    const CARD_POOL_SIZE = 180;
+    const cards = new Array(CARD_POOL_SIZE).fill(null);
+
+    function log(msg) {
+      const line = document.createElement("div");
+      line.className = "log-line";
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.prepend(line);
+      while (logEl.childNodes.length > 120) {
+        logEl.removeChild(logEl.lastChild);
+      }
+    }
+
+    function randomWord(len) {
+      const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+      let out = "";
+      for (let i = 0; i < len; i++) {
+        out += chars[(Math.random() * chars.length) | 0];
+      }
+      return out;
+    }
+
+    function buildCardData(index) {
+      const lines = [];
+      for (let i = 0; i < 12; i++) {
+        lines.push(
+          `${randomWord(8)} ${randomWord(12)} ${Math.random().toFixed(8)}`
+        );
+      }
+      return {
+        title: `Bloc ${index} • ${randomWord(6)}`,
+        lines,
+        score: Math.floor(Math.random() * 100000),
+      };
+    }
+
+    function renderCards() {
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < cards.length; i++) {
+        const data = cards[i];
+        const el = document.createElement("div");
+        el.className = "card";
+        el.innerHTML = `
+          <strong>${data.title}</strong>
+          <div class="tiny">Score: ${data.score}</div>
+          <div class="tiny">${data.lines.slice(0, 4).join("<br>")}</div>
+        `;
+        frag.appendChild(el);
+      }
+      cardsEl.replaceChildren(frag);
+      cardsCountEl.textContent = String(cards.length);
+    }
+
+    function updateDataChunk(chunkSize) {
+      for (let i = 0; i < chunkSize; i++) {
+        const idx = (loopCount * chunkSize + i) % cards.length;
+        cards[idx] = buildCardData(idx);
+      }
+    }
+
+    function churnBoundedMemory(multiplier = 1) {
+      const effectiveSize = BUFFER_MB * 1024 * 1024;
+      const rounds = 2 * multiplier;
+
+      for (let r = 0; r < rounds; r++) {
+        const buf = new Uint8Array(effectiveSize);
+        for (let i = 0; i < buf.length; i += 4096) {
+          buf[i] = (i + loopCount + r) & 255;
+        }
+        mainPool[mainPoolIndex] = buf;
+        mainPoolIndex = (mainPoolIndex + 1) % MAIN_POOL_SIZE;
+      }
+
+      memoryHintEl.textContent = `~${MAIN_POOL_SIZE * BUFFER_MB} MB`;
+    }
+
+    function cpuWork(multiplier = 1) {
+      for (let m = 0; m < multiplier; m++) {
+        const arr = new Array(35000);
+        for (let i = 0; i < arr.length; i++) {
+          arr[i] = {
+            a: Math.random(),
+            b: (i * 2654435761) >>> 0,
+            c: randomWord(10),
+          };
+        }
+        arr.sort((x, y) => x.a - y.a);
+      }
+    }
+
+    function drawCanvas() {
+      const w = canvas.width;
+      const h = canvas.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      for (let i = 0; i < 120; i++) {
+        const x = (i * 17 + loopCount * 7) % w;
+        const y = (Math.sin((i + loopCount) / 8) * 40 + h / 2);
+        const size = 8 + ((i + loopCount) % 18);
+
+        ctx.fillStyle = `hsl(${(i * 13 + loopCount * 5) % 360} 80% 60%)`;
+        ctx.fillRect(x, y, size, size);
+      }
+
+      ctx.fillStyle = "#dfe7f7";
+      ctx.font = "16px system-ui";
+      ctx.fillText(`Loop #${loopCount}`, 16, 24);
+      ctx.fillText(`Workers: ${workers.length}`, 16, 46);
+      ctx.fillText(`Mémoire bornée: ~${MAIN_POOL_SIZE * BUFFER_MB} MB`, 16, 68);
+    }
+
+    function autoScroll() {
+      const maxScroll = viewportEl.scrollHeight - viewportEl.clientHeight;
+      if (maxScroll <= 0) return;
+
+      let next = viewportEl.scrollTop + (8 * scrollDir);
+      if (next >= maxScroll) {
+        next = maxScroll;
+        scrollDir = -1;
+      } else if (next <= 0) {
+        next = 0;
+        scrollDir = 1;
+      }
+      viewportEl.scrollTop = next;
+    }
 
     function createWorkerCode() {
       return `
-        let running = true;
-        const POOL_SIZE = 12;
-        const BUFFER_SIZE = 4 * 1024 * 1024; // 4 MB
+        let active = false;
+        const POOL_SIZE = 10;
+        const BUF_MB = 4;
         const pool = new Array(POOL_SIZE).fill(null);
         let idx = 0;
         let iter = 0;
 
-        function heavyCompute() {
-          const arr = new Array(40000);
-          for (let i = 0; i < arr.length; i++) {
-            arr[i] = {
-              i,
-              r: Math.random(),
-              s: "abcdefghij" + (i % 97)
-            };
+        function word(len) {
+          const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+          let out = "";
+          for (let i = 0; i < len; i++) {
+            out += chars[(Math.random() * chars.length) | 0];
           }
-          arr.sort((a, b) => a.r - b.r);
-          return arr[0].r;
+          return out;
         }
 
-        function churn() {
-          if (!running) return;
+        function tick() {
+          if (!active) return;
 
-          const buf = new Uint8Array(BUFFER_SIZE);
+          const arr = new Array(22000);
+          for (let i = 0; i < arr.length; i++) {
+            arr[i] = { x: Math.random(), y: word(8), z: i ^ iter };
+          }
+          arr.sort((a, b) => a.x - b.x);
+
+          const size = BUF_MB * 1024 * 1024;
+          const buf = new Uint8Array(size);
           for (let i = 0; i < buf.length; i += 4096) {
             buf[i] = (i + iter) & 255;
           }
+
           pool[idx] = buf;
           idx = (idx + 1) % POOL_SIZE;
-
-          for (let k = 0; k < 3; k++) heavyCompute();
-
           iter++;
-          if (iter % 25 === 0) {
+
+          if (iter % 20 === 0) {
             postMessage({ type: "tick", iter });
           }
 
-          setTimeout(churn, 0);
+          setTimeout(tick, 0);
         }
 
         onmessage = (e) => {
-          if (e.data === "start") churn();
-          if (e.data === "stop") running = false;
+          if (e.data === "start") {
+            active = true;
+            tick();
+          }
+          if (e.data === "stop") {
+            active = false;
+          }
         };
       `;
     }
 
-    function heavyMainThreadWork() {
-      const arr = new Array(60000);
-      for (let i = 0; i < arr.length; i++) {
-        arr[i] = {
-          i,
-          r: Math.random(),
-          s: "x".repeat(24) + (i % 113)
-        };
-      }
-      arr.sort((a, b) => a.r - b.r);
-
-      const size = BUFFER_SIZE_MB * 1024 * 1024;
-      const buf = new Uint8Array(size);
-      for (let i = 0; i < buf.length; i += 4096) {
-        buf[i] = (i + iteration) & 255;
-      }
-
-      pool[poolIndex] = buf;
-      poolIndex = (poolIndex + 1) % POOL_SIZE;
-
-      // Un peu de travail DOM/canvas sans explosion mémoire
-      const canvas = document.createElement("canvas");
-      canvas.width = 512;
-      canvas.height = 512;
-      const ctx = canvas.getContext("2d");
-      const img = ctx.createImageData(canvas.width, canvas.height);
-      for (let i = 0; i < img.data.length; i += 4) {
-        img.data[i] = (i + iteration) & 255;
-        img.data[i + 1] = (i >> 1) & 255;
-        img.data[i + 2] = (i >> 2) & 255;
-        img.data[i + 3] = 255;
-      }
-      ctx.putImageData(img, 0, 0);
-
-      iteration++;
-      if (iteration % 10 === 0) {
-        const approxMb = POOL_SIZE * BUFFER_SIZE_MB;
-        log(\`Boucle #\${iteration} | empreinte mémoire bornée ~\${approxMb} MB + overhead JS/workers\`);
-      }
-    }
-
-    function loop() {
-      if (!running) return;
-      for (let i = 0; i < 4; i++) {
-        heavyMainThreadWork();
-      }
-      mainTimer = setTimeout(loop, 0);
-    }
-
-    function start() {
-      if (running) return;
-      running = true;
-      iteration = 0;
-      poolIndex = 0;
-      for (let i = 0; i < POOL_SIZE; i++) pool[i] = null;
-
-      statusEl.textContent = "État : test en cours";
-      log("Démarrage du test.");
-
+    function startWorkers(count) {
       const blob = new Blob([createWorkerCode()], { type: "application/javascript" });
       workerUrl = URL.createObjectURL(blob);
 
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < count; i++) {
         const w = new Worker(workerUrl);
         w.onmessage = (e) => {
-          if (e.data && e.data.type === "tick") {
-            log(\`Worker actif, itération \${e.data.iter}\`);
+          if (e.data?.type === "tick") {
+            log(`Worker ${i + 1}: tick ${e.data.iter}`);
           }
         };
         w.postMessage("start");
         workers.push(w);
       }
 
-      loop();
+      workersCountEl.textContent = String(workers.length);
     }
 
-    function stop() {
-      running = false;
-      statusEl.textContent = "État : arrêté";
-
-      if (mainTimer) {
-        clearTimeout(mainTimer);
-        mainTimer = null;
-      }
-
+    function stopWorkers() {
       for (const w of workers) {
         try {
           w.postMessage("stop");
@@ -205,19 +470,96 @@
         } catch (_) {}
       }
       workers = [];
+      workersCountEl.textContent = "0";
 
       if (workerUrl) {
         URL.revokeObjectURL(workerUrl);
         workerUrl = null;
       }
+    }
 
-      for (let i = 0; i < POOL_SIZE; i++) pool[i] = null;
+    function loop() {
+      if (!running) return;
+
+      const burst = Date.now() < burstUntil;
+      const multiplier = burst ? 3 : 1;
+      const chunkSize = burst ? 45 : 18;
+
+      loopCount++;
+      loopsEl.textContent = String(loopCount);
+
+      updateDataChunk(chunkSize);
+      renderCards();
+      churnBoundedMemory(multiplier);
+      cpuWork(multiplier);
+      drawCanvas();
+      autoScroll();
+
+      if (loopCount % 10 === 0) {
+        log(`Boucle ${loopCount} exécutée${burst ? " (burst)" : ""}`);
+      }
+
+      mainTimer = setTimeout(loop, 0);
+    }
+
+    function animate() {
+      if (!running) return;
+      drawCanvas();
+      animationFrame = requestAnimationFrame(animate);
+    }
+
+    function initCards() {
+      for (let i = 0; i < cards.length; i++) {
+        cards[i] = buildCardData(i);
+      }
+      renderCards();
+    }
+
+    function start() {
+      if (running) return;
+      running = true;
+      loopCount = 0;
+      burstUntil = 0;
+      statusEl.textContent = "Test en cours";
+      log("Démarrage du test.");
+      initCards();
+      startWorkers(4);
+      loop();
+      animate();
+    }
+
+    function stop() {
+      running = false;
+      statusEl.textContent = "Arrêté";
+
+      if (mainTimer) {
+        clearTimeout(mainTimer);
+        mainTimer = null;
+      }
+
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = null;
+      }
+
+      stopWorkers();
+
+      for (let i = 0; i < mainPool.length; i++) {
+        mainPool[i] = null;
+      }
 
       log("Test arrêté.");
     }
 
     document.getElementById("start").addEventListener("click", start);
     document.getElementById("stop").addEventListener("click", stop);
+    document.getElementById("burst").addEventListener("click", () => {
+      burstUntil = Date.now() + 5000;
+      log("Burst activé pour 5 secondes.");
+    });
+
+    initCards();
+    drawCanvas();
   </script>
 </body>
 </html>
