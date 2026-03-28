@@ -3,108 +3,216 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Browser Crash Repro</title>
+  <title>Browser Stability Repro</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 24px; line-height: 1.4; }
-    button { font-size: 16px; padding: 10px 14px; margin-right: 8px; }
-    #log { white-space: pre-wrap; background: #f6f6f6; padding: 12px; border-radius: 8px; margin-top: 16px; }
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 24px;
+      line-height: 1.4;
+      max-width: 900px;
+    }
+    button {
+      font-size: 16px;
+      padding: 10px 14px;
+      margin-right: 8px;
+      cursor: pointer;
+    }
+    #log {
+      white-space: pre-wrap;
+      background: #f6f6f6;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 16px;
+      min-height: 240px;
+      overflow: auto;
+    }
+    .muted {
+      color: #555;
+    }
   </style>
 </head>
 <body>
-  <h1>Browser Crash Repro</h1>
-  <p>Test de charge JS/mémoire. À utiliser uniquement pour diagnostic.</p>
+  <h1>Browser Stability Repro</h1>
+  <p>
+    Test de stabilité navigateur avec charge CPU/JS et churn mémoire borné.
+    Le test essaie d'éviter un <em>Out of Memory</em> en maintenant une empreinte mémoire stable.
+  </p>
+
   <button id="start">Démarrer</button>
   <button id="stop">Arrêter</button>
-  <div id="log">Prêt.</div>
+  <div class="muted" id="status">État : prêt</div>
+  <div id="log">Prêt.\n</div>
 
   <script>
-    const log = (msg) => {
-      document.getElementById("log").textContent =
-        `[${new Date().toLocaleTimeString()}] ${msg}\n` +
-        document.getElementById("log").textContent.slice(0, 4000);
-    };
+    const logEl = document.getElementById("log");
+    const statusEl = document.getElementById("status");
+
+    function log(msg) {
+      const line = `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+      logEl.textContent = line + logEl.textContent.slice(0, 12000);
+    }
 
     let running = false;
+    let mainTimer = null;
     let workers = [];
-    let junk = [];
-    let timer = null;
+    let workerUrl = null;
 
-    function makeWorkerCode() {
+    // Mémoire bornée côté main thread
+    const POOL_SIZE = 24;
+    const BUFFER_SIZE_MB = 8;
+    const pool = new Array(POOL_SIZE).fill(null);
+    let poolIndex = 0;
+    let iteration = 0;
+
+    function createWorkerCode() {
       return `
-        let buf = [];
-        function churn() {
-          for (let i = 0; i < 200; i++) {
-            const size = 1024 * 1024; // 1 MB
-            const a = new Uint8Array(size);
-            for (let j = 0; j < size; j += 4096) a[j] = (j * 31) & 255;
-            buf.push(a);
-            if (buf.length > 128) buf.splice(0, 64);
+        let running = true;
+        const POOL_SIZE = 12;
+        const BUFFER_SIZE = 4 * 1024 * 1024; // 4 MB
+        const pool = new Array(POOL_SIZE).fill(null);
+        let idx = 0;
+        let iter = 0;
+
+        function heavyCompute() {
+          const arr = new Array(40000);
+          for (let i = 0; i < arr.length; i++) {
+            arr[i] = {
+              i,
+              r: Math.random(),
+              s: "abcdefghij" + (i % 97)
+            };
           }
-          const arr = [];
-          for (let k = 0; k < 50000; k++) arr.push({k, v: Math.random(), s: "x".repeat(64)});
-          arr.sort((x, y) => x.v - y.v);
+          arr.sort((a, b) => a.r - b.r);
+          return arr[0].r;
+        }
+
+        function churn() {
+          if (!running) return;
+
+          const buf = new Uint8Array(BUFFER_SIZE);
+          for (let i = 0; i < buf.length; i += 4096) {
+            buf[i] = (i + iter) & 255;
+          }
+          pool[idx] = buf;
+          idx = (idx + 1) % POOL_SIZE;
+
+          for (let k = 0; k < 3; k++) heavyCompute();
+
+          iter++;
+          if (iter % 25 === 0) {
+            postMessage({ type: "tick", iter });
+          }
+
           setTimeout(churn, 0);
         }
-        churn();
+
+        onmessage = (e) => {
+          if (e.data === "start") churn();
+          if (e.data === "stop") running = false;
+        };
       `;
+    }
+
+    function heavyMainThreadWork() {
+      const arr = new Array(60000);
+      for (let i = 0; i < arr.length; i++) {
+        arr[i] = {
+          i,
+          r: Math.random(),
+          s: "x".repeat(24) + (i % 113)
+        };
+      }
+      arr.sort((a, b) => a.r - b.r);
+
+      const size = BUFFER_SIZE_MB * 1024 * 1024;
+      const buf = new Uint8Array(size);
+      for (let i = 0; i < buf.length; i += 4096) {
+        buf[i] = (i + iteration) & 255;
+      }
+
+      pool[poolIndex] = buf;
+      poolIndex = (poolIndex + 1) % POOL_SIZE;
+
+      // Un peu de travail DOM/canvas sans explosion mémoire
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext("2d");
+      const img = ctx.createImageData(canvas.width, canvas.height);
+      for (let i = 0; i < img.data.length; i += 4) {
+        img.data[i] = (i + iteration) & 255;
+        img.data[i + 1] = (i >> 1) & 255;
+        img.data[i + 2] = (i >> 2) & 255;
+        img.data[i + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+
+      iteration++;
+      if (iteration % 10 === 0) {
+        const approxMb = POOL_SIZE * BUFFER_SIZE_MB;
+        log(\`Boucle #\${iteration} | empreinte mémoire bornée ~\${approxMb} MB + overhead JS/workers\`);
+      }
+    }
+
+    function loop() {
+      if (!running) return;
+      for (let i = 0; i < 4; i++) {
+        heavyMainThreadWork();
+      }
+      mainTimer = setTimeout(loop, 0);
     }
 
     function start() {
       if (running) return;
       running = true;
+      iteration = 0;
+      poolIndex = 0;
+      for (let i = 0; i < POOL_SIZE; i++) pool[i] = null;
+
+      statusEl.textContent = "État : test en cours";
       log("Démarrage du test.");
 
-      const blob = new Blob([makeWorkerCode()], { type: "application/javascript" });
-      const url = URL.createObjectURL(blob);
+      const blob = new Blob([createWorkerCode()], { type: "application/javascript" });
+      workerUrl = URL.createObjectURL(blob);
 
       for (let i = 0; i < 4; i++) {
-        const w = new Worker(url);
+        const w = new Worker(workerUrl);
+        w.onmessage = (e) => {
+          if (e.data && e.data.type === "tick") {
+            log(\`Worker actif, itération \${e.data.iter}\`);
+          }
+        };
+        w.postMessage("start");
         workers.push(w);
       }
 
-      function mainThreadStress() {
-        if (!running) return;
-
-        for (let i = 0; i < 64; i++) {
-          const arr = new Array(200000).fill(0).map((_, n) => ({
-            n,
-            r: Math.random(),
-            s: "abcdefghij".repeat(20)
-          }));
-          arr.sort((a, b) => a.r - b.r);
-          junk.push(arr);
-        }
-
-        if (junk.length > 24) {
-          junk.splice(0, 12);
-        }
-
-        const canvas = document.createElement("canvas");
-        canvas.width = 2048;
-        canvas.height = 2048;
-        const ctx = canvas.getContext("2d");
-        const img = ctx.createImageData(canvas.width, canvas.height);
-        for (let i = 0; i < img.data.length; i += 4) {
-          img.data[i] = i & 255;
-          img.data[i + 1] = (i >> 1) & 255;
-          img.data[i + 2] = (i >> 2) & 255;
-          img.data[i + 3] = 255;
-        }
-        ctx.putImageData(img, 0, 0);
-
-        log(`Boucle exécutée. Blocs en mémoire: ${junk.length}`);
-        timer = setTimeout(mainThreadStress, 0);
-      }
-
-      mainThreadStress();
+      loop();
     }
 
     function stop() {
       running = false;
-      for (const w of workers) w.terminate();
+      statusEl.textContent = "État : arrêté";
+
+      if (mainTimer) {
+        clearTimeout(mainTimer);
+        mainTimer = null;
+      }
+
+      for (const w of workers) {
+        try {
+          w.postMessage("stop");
+          w.terminate();
+        } catch (_) {}
+      }
       workers = [];
-      junk = [];
-      if (timer) clearTimeout(timer);
+
+      if (workerUrl) {
+        URL.revokeObjectURL(workerUrl);
+        workerUrl = null;
+      }
+
+      for (let i = 0; i < POOL_SIZE; i++) pool[i] = null;
+
       log("Test arrêté.");
     }
 
