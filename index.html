@@ -257,7 +257,7 @@
     const mainPool = new Array(MAIN_POOL_SIZE).fill(null);
     let mainPoolIndex = 0;
 
-    const CARD_POOL_SIZE = 1800;
+    const CARD_POOL_SIZE = 1000;
     const cards = new Array(CARD_POOL_SIZE).fill(null);
 
     function log(msg) {
@@ -373,7 +373,7 @@
       const maxScroll = viewportEl.scrollHeight - viewportEl.clientHeight;
       if (maxScroll <= 0) return;
 
-      let next = viewportEl.scrollTop + (8 * scrollDir);
+      let next = viewportEl.scrollTop + (16 * scrollDir);
       if (next >= maxScroll) {
         next = maxScroll;
         scrollDir = -1;
@@ -486,9 +486,9 @@
 
       updateDataChunk(chunkSize);
       renderCards();
-      churnBoundedMemory(multiplier);
-      cpuWork(multiplier);
-      drawCanvas();
+      //churnBoundedMemory(multiplier);
+      //cpuWork(multiplier);
+      //drawCanvas();
       autoScroll();
 
       if (loopCount % 10 === 0) {
