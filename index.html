@@ -231,6 +231,291 @@
     </section>
   </main>
 
+  <!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Browser Stability Repro</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a30;
+      --panel-2: #18213d;
+      --text: #e8ecf3;
+      --muted: #9aa6c0;
+      --ok: #7bd88f;
+      --warn: #ffd166;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(11, 16, 32, 0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid #24304f;
+      padding: 16px;
+    }
+
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 22px;
+    }
+
+    .sub {
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 15px;
+      cursor: pointer;
+      background: var(--panel-2);
+      color: var(--text);
+    }
+
+    button:hover {
+      filter: brightness(1.1);
+    }
+
+    .status {
+      margin-left: 8px;
+      color: var(--ok);
+      font-weight: 600;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid #24304f;
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .metric {
+      background: #10172d;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .metric .value {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    #log {
+      height: 260px;
+      overflow: auto;
+      background: #0d1427;
+      border-radius: 10px;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .log-line {
+      margin-bottom: 4px;
+      color: #cdd6e7;
+    }
+
+    #viewport {
+      height: calc(100vh - 140px);
+      overflow: auto;
+      background: #0d1427;
+      border-radius: 14px;
+      border: 1px solid #24304f;
+      padding: 12px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      max-width: 980px;
+      margin: 0 auto;
+    }
+    
+    .doc-block {
+      position: relative;
+      background: linear-gradient(180deg, #17203b, #121a30);
+      border: 1px solid #2a3760;
+      border-radius: 14px;
+      padding: 16px 18px;
+      min-height: 180px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+    }
+    
+    .doc-block.compact {
+      min-height: 120px;
+      padding-bottom: 10px;
+    }
+    
+    .doc-meta {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+    
+    .doc-block h3 {
+      margin: 0 0 12px 0;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+    
+    .doc-block p {
+      margin: 0 0 12px 0;
+      line-height: 1.55;
+    }
+    
+    .doc-block ul {
+      margin: 0;
+      padding-left: 18px;
+      line-height: 1.5;
+      color: #d7def0;
+    }
+    
+    .doc-footer {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    
+    .doc-footer span,
+    .sticky-tag {
+      display: inline-block;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: #22315c;
+      color: #dfe7f7;
+      font-size: 12px;
+    }
+    
+    .sticky-tag {
+      position: sticky;
+      top: 8px;
+      z-index: 2;
+      margin-bottom: 10px;
+    }
+
+    .tiny {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    canvas {
+      width: 100%;
+      height: 220px;
+      display: block;
+      background: #0a0f1d;
+      border-radius: 12px;
+      border: 1px solid #24304f;
+      margin-bottom: 14px;
+    }
+
+    .note {
+      color: var(--warn);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+      #viewport {
+        height: 50vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Browser Stability Repro 0.6</h1>
+    <div class="sub">
+      Test visuel de charge JS / DOM / canvas / workers avec mémoire bornée.
+    </div>
+    <div class="controls">
+      <button id="start">Démarrer</button>
+      <button id="stop">Arrêter</button>
+      <button id="burst">Burst 5s</button>
+      <span id="status" class="status">Prêt</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="panel">
+      <div class="metrics">
+        <div class="metric">
+          <div class="label">Boucles main thread</div>
+          <div class="value" id="loops">0</div>
+        </div>
+        <div class="metric">
+          <div class="label">Workers actifs</div>
+          <div class="value" id="workersCount">0</div>
+        </div>
+        <div class="metric">
+          <div class="label">Cartes DOM</div>
+          <div class="value" id="cardsCount">0</div>
+        </div>
+        <div class="metric">
+          <div class="label">Empreinte bornée</div>
+          <div class="value" id="memoryHint">~0 MB</div>
+        </div>
+      </div>
+
+      <canvas id="canvas" width="900" height="220"></canvas>
+
+      <div id="log"></div>
+    </section>
+
+    <section>
+      <div id="viewport">
+        <div id="cards" class="cards"></div>
+      </div>
+    </section>
+  </main>
+
   <script>
     const statusEl = document.getElementById("status");
     const loopsEl = document.getElementById("loops");
