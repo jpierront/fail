@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Browser Crash Repro</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; line-height: 1.4; }
+    button { font-size: 16px; padding: 10px 14px; margin-right: 8px; }
+    #log { white-space: pre-wrap; background: #f6f6f6; padding: 12px; border-radius: 8px; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Browser Crash Repro</h1>
+  <p>Test de charge JS/mémoire. À utiliser uniquement pour diagnostic.</p>
+  <button id="start">Démarrer</button>
+  <button id="stop">Arrêter</button>
+  <div id="log">Prêt.</div>
+
+  <script>
+    const log = (msg) => {
+      document.getElementById("log").textContent =
+        `[${new Date().toLocaleTimeString()}] ${msg}\n` +
+        document.getElementById("log").textContent.slice(0, 4000);
+    };
+
+    let running = false;
+    let workers = [];
+    let junk = [];
+    let timer = null;
+
+    function makeWorkerCode() {
+      return `
+        let buf = [];
+        function churn() {
+          for (let i = 0; i < 200; i++) {
+            const size = 1024 * 1024; // 1 MB
+            const a = new Uint8Array(size);
+            for (let j = 0; j < size; j += 4096) a[j] = (j * 31) & 255;
+            buf.push(a);
+            if (buf.length > 128) buf.splice(0, 64);
+          }
+          const arr = [];
+          for (let k = 0; k < 50000; k++) arr.push({k, v: Math.random(), s: "x".repeat(64)});
+          arr.sort((x, y) => x.v - y.v);
+          setTimeout(churn, 0);
+        }
+        churn();
+      `;
+    }
+
+    function start() {
+      if (running) return;
+      running = true;
+      log("Démarrage du test.");
+
+      const blob = new Blob([makeWorkerCode()], { type: "application/javascript" });
+      const url = URL.createObjectURL(blob);
+
+      for (let i = 0; i < 4; i++) {
+        const w = new Worker(url);
+        workers.push(w);
+      }
+
+      function mainThreadStress() {
+        if (!running) return;
+
+        for (let i = 0; i < 64; i++) {
+          const arr = new Array(200000).fill(0).map((_, n) => ({
+            n,
+            r: Math.random(),
+            s: "abcdefghij".repeat(20)
+          }));
+          arr.sort((a, b) => a.r - b.r);
+          junk.push(arr);
+        }
+
+        if (junk.length > 24) {
+          junk.splice(0, 12);
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = 2048;
+        canvas.height = 2048;
+        const ctx = canvas.getContext("2d");
+        const img = ctx.createImageData(canvas.width, canvas.height);
+        for (let i = 0; i < img.data.length; i += 4) {
+          img.data[i] = i & 255;
+          img.data[i + 1] = (i >> 1) & 255;
+          img.data[i + 2] = (i >> 2) & 255;
+          img.data[i + 3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+
+        log(`Boucle exécutée. Blocs en mémoire: ${junk.length}`);
+        timer = setTimeout(mainThreadStress, 0);
+      }
+
+      mainThreadStress();
+    }
+
+    function stop() {
+      running = false;
+      for (const w of workers) w.terminate();
+      workers = [];
+      junk = [];
+      if (timer) clearTimeout(timer);
+      log("Test arrêté.");
+    }
+
+    document.getElementById("start").addEventListener("click", start);
+    document.getElementById("stop").addEventListener("click", stop);
+  </script>
+</body>
+</html>
