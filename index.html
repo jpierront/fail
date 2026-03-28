@@ -657,8 +657,14 @@
     function autoScroll() {
       const maxScroll = viewportEl.scrollHeight - viewportEl.clientHeight;
       if (maxScroll <= 0) return;
-
-      let next = viewportEl.scrollTop + (16 * scrollDir);
+    
+      const burst = Date.now() < burstUntil;
+    
+      // Scroll beaucoup plus agressif, plus proche d’un humain qui
+      // tient PageDown / molette rapide dans une app lourde
+      const baseStep = burst ? 320 : 140;
+      let next = viewportEl.scrollTop + baseStep * scrollDir;
+    
       if (next >= maxScroll) {
         next = maxScroll;
         scrollDir = -1;
@@ -666,6 +672,7 @@
         next = 0;
         scrollDir = 1;
       }
+    
       viewportEl.scrollTop = next;
     }
 
