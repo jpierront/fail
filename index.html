@@ -654,24 +654,31 @@
       ctx.fillText(`Mémoire bornée: ~${MAIN_POOL_SIZE * BUFFER_MB} MB`, 16, 68);
     }
 
+    let targetScroll = 0;
+    
     function autoScroll() {
       const maxScroll = viewportEl.scrollHeight - viewportEl.clientHeight;
       if (maxScroll <= 0) return;
     
       const burst = Date.now() < burstUntil;
     
-      // Scroll beaucoup plus agressif, plus proche d’un humain qui
-      // tient PageDown / molette rapide dans une app lourde
-      const baseStep = burst ? 320 : 140;
-      let next = viewportEl.scrollTop + baseStep * scrollDir;
+      // vitesse cible (humain rapide)
+      const speed = burst ? 2200 : 1200;
     
-      if (next >= maxScroll) {
-        next = maxScroll;
+      // on fait évoluer la cible
+      targetScroll += speed / 60 * scrollDir;
+    
+      if (targetScroll >= maxScroll) {
+        targetScroll = maxScroll;
         scrollDir = -1;
-      } else if (next <= 0) {
-        next = 0;
+      } else if (targetScroll <= 0) {
+        targetScroll = 0;
         scrollDir = 1;
       }
+    
+      // interpolation fluide (clé du rendu smooth)
+      const current = viewportEl.scrollTop;
+      const next = current + (targetScroll - current) * 0.18;
     
       viewportEl.scrollTop = next;
     }
@@ -792,7 +799,7 @@
 
     function animate() {
       if (!running) return;
-      drawCanvas();
+      // drawCanvas();
       animationFrame = requestAnimationFrame(animate);
     }
 
@@ -847,7 +854,7 @@
     });
 
     initCards();
-    drawCanvas();
+    // drawCanvas();
   </script>
 </body>
 </html>
